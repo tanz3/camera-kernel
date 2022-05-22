@@ -25,6 +25,7 @@
 #include "cam_trace.h"
 
 static const char drv_name[] = "vfe_bus";
+struct cam_hw_soc_info *gsoc_info = NULL;
 
 #define CAM_VFE_BUS_VER3_IRQ_REG0                0
 #define CAM_VFE_BUS_VER3_IRQ_REG1                1
@@ -2190,7 +2191,7 @@ static int cam_vfe_bus_ver3_start_vfe_out(
 	source_group = rsrc_data->source_group;
 
 	CAM_DBG(CAM_ISP, "Start VFE:%d out_type:0x%X",
-		rsrc_data->common_data->core_index, rsrc_data->out_type);
+		 rsrc_data->common_data->core_index, rsrc_data->out_type);
 
 	if (vfe_out->res_state != CAM_ISP_RESOURCE_STATE_RESERVED) {
 		CAM_ERR(CAM_ISP,
@@ -2325,6 +2326,11 @@ static int cam_vfe_bus_ver3_handle_vfe_out_done_top_half(uint32_t evt_id,
 	void __iomem                           *camnoc_mem_base = NULL;
 	uint32_t                                val0 = 0, val1 = 0, val2 = 0;
 	uint32_t                                comp_mask = 0;
+	struct cam_vfe_soc_private     		*soc_private = NULL;
+
+	// camnoc base
+	soc_private = gsoc_info->soc_private;
+	camnoc_mem_base = CAM_SOC_GET_REG_MAP_START(gsoc_info, 1);
 
 	vfe_out = th_payload->handler_priv;
 	if (!vfe_out) {
@@ -2956,6 +2962,7 @@ static int cam_vfe_bus_ver3_update_wm(void *priv, void *cmd_args,
 	uint32_t *reg_val_pair;
 	uint32_t  i, j, size = 0;
 	uint32_t  frame_inc = 0, val;
+	bool frame_header_enable = false;
 
 	bus_priv = (struct cam_vfe_bus_ver3_priv  *) priv;
 	update_buf =  (struct cam_isp_hw_get_cmd_update *) cmd_args;
@@ -2994,22 +3001,20 @@ static int cam_vfe_bus_ver3_update_wm(void *priv, void *cmd_args,
 			wm_data->en_cfg &= ~(1 << 2);
 
 		if (update_buf->wm_update->frame_header &&
-			!update_buf->wm_update->fh_enabled) {
-			if (wm_data->hw_regs->frame_header_addr) {
-				wm_data->en_cfg |= 1 << 2;
-				update_buf->wm_update->fh_enabled = true;
-				CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
-						wm_data->hw_regs->frame_header_addr,
-						update_buf->wm_update->frame_header);
-				CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
-						wm_data->hw_regs->frame_header_cfg,
-						update_buf->wm_update->local_id);
-				CAM_DBG(CAM_ISP,
-					"WM: %d en_cfg 0x%x frame_header %pK local_id %u",
-					wm_data->index, wm_data->en_cfg,
-					update_buf->wm_update->frame_header,
+			!frame_header_enable) {
+			wm_data->en_cfg |= 1 << 2;
+			frame_header_enable = true;
+			CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
+					wm_data->hw_regs->frame_header_addr,
+					update_buf->wm_update->frame_header);
+			CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
+					wm_data->hw_regs->frame_header_cfg,
 					update_buf->wm_update->local_id);
-			}
+			CAM_DBG(CAM_ISP,
+				"WM: %d en_cfg 0x%x frame_header %pK local_id %u",
+				wm_data->index, wm_data->en_cfg,
+				update_buf->wm_update->frame_header,
+				update_buf->wm_update->local_id);
 		}
 
 		CAM_VFE_ADD_REG_VAL_PAIR(reg_val_pair, j,
@@ -3844,6 +3849,9 @@ int cam_vfe_bus_ver3_init(
 	bus_priv->common_data.supported_irq      = ver3_hw_info->supported_irq;
 	bus_priv->common_data.comp_config_needed =
 		ver3_hw_info->comp_cfg_needed;
+
+	if (soc_info->index == 0)
+		gsoc_info = soc_info;
 
 	if (bus_priv->num_out >= CAM_VFE_BUS_VER3_VFE_OUT_MAX) {
 		CAM_ERR(CAM_ISP, "number of vfe out:%d more than max value:%d ",
